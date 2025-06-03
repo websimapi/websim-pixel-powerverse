@@ -9,13 +9,27 @@ const EFFECT_SIZE = 64; // Effects are a bit larger
 const EFFECT_DURATION_MS = 5000; // 5 seconds
 const PLAYER_SPEED = 5;
 
+// New constants for chunk system
+const CHUNK_PIXEL_SIZE = 256; // Each chunk is 256x256 pixels
+const LOAD_RADIUS = 1; // Load chunks in a (LOAD_RADIUS*2+1) x (LOAD_RADIUS*2+1) grid around the player
+
+// URLs for placeholder images (assuming they are in the root directory)
+const CHUNK_LOADING_PLACEHOLDER_URL = 'chunk_loading_placeholder.png';
+const CHUNK_ERROR_PLACEHOLDER_URL = 'chunk_error_placeholder.png';
+const EFFECT_ERROR_PLACEHOLDER_URL = 'error_placeholder.png';
+
 function App() {
     const [currentUser, setCurrentUser] = useState(null);
     const [playerPower, setPlayerPower] = useState(null);
-    const [playerPosition, setPlayerPosition] = useState({ x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 });
+    // Player position is now world coordinates
+    const [playerPosition, setPlayerPosition] = useState(() => {
+        const savedPos = localStorage.getItem('playerPosition');
+        return savedPos ? JSON.parse(savedPos) : { x: 0, y: 0 }; // Default to world origin
+    });
     const [playerImage, setPlayerImage] = useState(null);
-    const [canvasEffects, setCanvasEffects] = useState([]); // { id, url, x, y, createdAt, imgObj, isLoading, isError }
-    const [loadingStates, setLoadingStates] = useState({}); // For button interactions: { [elementInstanceId]: boolean }
+    // Canvas effects positions are world coordinates
+    const [canvasEffects, setCanvasEffects] = useState([]); // { id, url, x (world), y (world), createdAt, imgObj, isLoading, isError }
+    const [loadingStates, setLoadingStates] = useState({});
     const [evolutionInProgress, setEvolutionInProgress] = useState(false);
 
     useEffect(() => {
@@ -29,6 +43,11 @@ function App() {
             }
         });
     }, []);
+    
+    // Persist player's world position
+    useEffect(() => {
+        localStorage.setItem('playerPosition', JSON.stringify(playerPosition));
+    }, [playerPosition]);
 
     useEffect(() => {
         const savedPower = localStorage.getItem('playerPower');
@@ -49,7 +68,7 @@ function App() {
         }
     }, []);
 
-    const addEffectToCanvas = useCallback((url, position, elementInstanceId = null, isError = false) => {
+    const addEffectToCanvas = useCallback((url, worldPosition, elementInstanceId = null, isError = false) => {
         const img = new Image();
         const effectId = Date.now().toString() + Math.random();
 
@@ -61,30 +80,30 @@ function App() {
         img.onerror = () => {
             console.error(`Failed to load image: ${url}`);
             setCanvasEffects(prevEffects => prevEffects.map(ef => 
-                 ef.id === effectId ? { ...ef, isLoading: false, isError: true, url: 'error_placeholder.png', imgObj: null } : ef
-            ).map(ef => { // Attempt to load error placeholder if this one failed
+                 ef.id === effectId ? { ...ef, isLoading: false, isError: true, url: EFFECT_ERROR_PLACEHOLDER_URL, imgObj: null } : ef
+            ).map(ef => {
                  if(ef.id === effectId && ef.isError && !ef.imgObj) {
                     const errorImg = new Image();
-                    errorImg.onload = () => setCanvasEffects(prevs => prevs.map(e => e.id === effectId ? {...e, imgObj: errorImg, width: errorImg.width, height: errorImg.height} : e));
-                    errorImg.src = 'error_placeholder.png'; // Assuming error_placeholder.png is available
-                    return {...ef, imgObj: null, isLoading: true}; // Mark as loading error image
+                    errorImg.onload = () => setCanvasEffects(prevs => prevs.map(e => e.id === effectId ? {...e, imgObj: errorImg, width: EFFECT_SIZE, height: EFFECT_SIZE} : e)); // Use default EFFECT_SIZE for placeholder
+                    errorImg.src = EFFECT_ERROR_PLACEHOLDER_URL;
+                    return {...ef, imgObj: null, isLoading: true}; 
                  }
                  return ef;
             }));
         };
-        img.src = url;
+        img.src = isError ? EFFECT_ERROR_PLACEHOLDER_URL : url; // Use error placeholder if isError is true initially
 
         setCanvasEffects(prev => [...prev, {
             id: effectId,
-            url: url,
-            x: position.x - EFFECT_SIZE / 2, // Center effect on position
-            y: position.y - EFFECT_SIZE / 2,
+            url: isError ? EFFECT_ERROR_PLACEHOLDER_URL : url,
+            x: worldPosition.x - EFFECT_SIZE / 2, // world coordinates, centered
+            y: worldPosition.y - EFFECT_SIZE / 2,
             createdAt: Date.now(),
             imgObj: null,
             isLoading: true,
             isError: isError,
             elementInstanceId: elementInstanceId,
-            width: EFFECT_SIZE, // Default sizes
+            width: EFFECT_SIZE, 
             height: EFFECT_SIZE,
         }]);
     }, []);
@@ -93,7 +112,8 @@ function App() {
         const timer = setInterval(() => {
             setCanvasEffects(prevEffects =>
                 prevEffects.filter(ef => {
-                    if (ef.isLoading) return true;
+                    if (ef.isLoading && !ef.isError) return true; // Keep loading non-error effects
+                    if (ef.isError && ef.isLoading) return true; // Keep loading error placeholder
                     return Date.now() - ef.createdAt < EFFECT_DURATION_MS;
                 })
             );
@@ -112,12 +132,12 @@ function App() {
                 elementId: element.id,
                 interactionType: element.datapoint.interactionPrompt,
                 timestamp: new Date().toISOString(),
-                message: `${currentUser.username} used ${element.name} (${playerPower.name}) at ${Math.round(playerPosition.x)},${Math.round(playerPosition.y)}`
+                message: `${currentUser.username} used ${element.name} (${playerPower.name}) at world coords ${Math.round(playerPosition.x)},${Math.round(playerPosition.y)}`
             });
 
             if (element.visualEffect.trigger === 'on_interaction') {
                 const imageResult = await websim.imageGen({ prompt: element.visualEffect.prompt, aspect_ratio: "1:1", transparent: true });
-                addEffectToCanvas(imageResult.url, playerPosition, element.instanceId);
+                addEffectToCanvas(imageResult.url, playerPosition, element.instanceId); // playerPosition is world coords
             }
 
             setPlayerPower(prevPower => {
@@ -128,7 +148,7 @@ function App() {
 
         } catch (error) {
             console.error("Error during interaction:", error);
-            addEffectToCanvas('error_placeholder.png', playerPosition, element.instanceId, true);
+            addEffectToCanvas(EFFECT_ERROR_PLACEHOLDER_URL, playerPosition, element.instanceId, true); // playerPosition is world coords
         } finally {
             setLoadingStates(prev => ({ ...prev, [element.instanceId]: false }));
         }
@@ -155,11 +175,11 @@ function App() {
                         setLoadingStates(prev => ({ ...prev, [element.instanceId]: true }));
                         try {
                             const imageResult = await websim.imageGen({ prompt: element.visualEffect.prompt, aspect_ratio: "1:1", transparent: true });
-                            // For data change, effect might appear at a fixed point or related to data, here using player for simplicity
+                            // playerPosition is world coords
                             addEffectToCanvas(imageResult.url, playerPosition, element.instanceId); 
                         } catch (error) {
                             console.error("Error generating visual effect on data change:", error);
-                            addEffectToCanvas('error_placeholder.png', playerPosition, element.instanceId, true);
+                            addEffectToCanvas(EFFECT_ERROR_PLACEHOLDER_URL, playerPosition, element.instanceId, true);
                         } finally {
                             setLoadingStates(prev => ({ ...prev, [element.instanceId]: false }));
                         }
@@ -170,7 +190,7 @@ function App() {
             }, [dataList, element.instanceId, element.visualEffect.prompt, addEffectToCanvas, playerPosition]);
         }
     });
-
+    
     const attemptEvolution = useCallback(async () => {
         if (!playerPower || !playerPower.potentialEvolutions || playerPower.potentialEvolutions.length === 0) {
             alert("No more evolutions available.");
@@ -191,7 +211,7 @@ function App() {
                     ...prevPower,
                     currentElements: [...prevPower.currentElements, newElement],
                     potentialEvolutions: prevPower.potentialEvolutions.slice(1),
-                    interactionCount: 0
+                    interactionCount: 0 
                 };
                 localStorage.setItem('playerPower', JSON.stringify(updatedPower));
                 alert(`Power Evolved! You gained: ${newElement.name}`);
@@ -205,8 +225,8 @@ function App() {
         }
     }, [playerPower]);
 
-    const handlePlayerMove = useCallback((newPosition) => {
-        setPlayerPosition(newPosition);
+    const handlePlayerMove = useCallback((newWorldPosition) => {
+        setPlayerPosition(newWorldPosition);
     }, []);
 
     if (!playerPower || !currentUser || !playerImage) {
@@ -219,9 +239,9 @@ function App() {
         <div className="game-world">
             <GameCanvas
                 playerImage={playerImage}
-                playerPosition={playerPosition}
-                onPlayerMove={handlePlayerMove}
-                effects={canvasEffects}
+                playerPosition={playerPosition} // world coordinates
+                onPlayerMove={handlePlayerMove} // expects world coordinates
+                effects={canvasEffects} // effects have world coordinates
             />
             <HudOverlay
                 currentUser={currentUser}
@@ -239,6 +259,21 @@ function App() {
 function GameCanvas({ playerImage, playerPosition, onPlayerMove, effects }) {
     const canvasRef = useRef(null);
     const keysPressed = useRef({});
+    const [loadedChunks, setLoadedChunks] = useState({}); // { "cx_cy": { imgObj, worldX, worldY, isLoading, isError, id } }
+    const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
+
+    // Preload placeholder images
+    const chunkLoadingPlaceholderImg = useMemo(() => {
+        const img = new Image();
+        img.src = CHUNK_LOADING_PLACEHOLDER_URL;
+        return img;
+    }, []);
+    const chunkErrorPlaceholderImg = useMemo(() => {
+        const img = new Image();
+        img.src = CHUNK_ERROR_PLACEHOLDER_URL;
+        return img;
+    }, []);
+
 
     useEffect(() => {
         const handleKeyDown = (e) => { keysPressed.current[e.key.toLowerCase()] = true; };
@@ -251,53 +286,159 @@ function GameCanvas({ playerImage, playerPosition, onPlayerMove, effects }) {
         };
     }, []);
 
+    const generateAndLoadChunk = useCallback(async (cx, cy) => {
+        const chunkId = `chunk_${cx}_${cy}`;
+        if (loadedChunks[chunkId] && (loadedChunks[chunkId].imgObj || loadedChunks[chunkId].isLoading)) {
+            return; // Already loaded or loading
+        }
+
+        setLoadedChunks(prev => ({
+            ...prev,
+            [chunkId]: {
+                id: chunkId,
+                worldX: cx * CHUNK_PIXEL_SIZE,
+                worldY: cy * CHUNK_PIXEL_SIZE,
+                imgObj: null,
+                isLoading: true,
+                isError: false
+            }
+        }));
+
+        try {
+            // Generate a unique-ish prompt based on coordinates for varied terrain
+            // Using a simple seed based on coordinates for some variation
+            const seed = Math.abs(cx * 31 + cy * 17); 
+            let terrainFeature = "grassy plains";
+            if (seed % 10 < 2) terrainFeature = "light forest";
+            else if (seed % 10 < 4) terrainFeature = "rocky patches";
+            else if (seed % 10 < 5) terrainFeature = "a small pond";
+            
+            const prompt = `Pixel art terrain tile for chunk coordinates (${cx}, ${cy}). Style: Vibrant 16-bit fantasy RPG world. Features: mostly ${terrainFeature}. Seamlessly tileable. Aspect: 1:1.`;
+            
+            const result = await websim.imageGen({ prompt, aspect_ratio: "1:1", width: CHUNK_PIXEL_SIZE, height: CHUNK_PIXEL_SIZE });
+            const img = new Image();
+            img.onload = () => {
+                setLoadedChunks(prev => ({
+                    ...prev,
+                    [chunkId]: { ...prev[chunkId], imgObj: img, isLoading: false }
+                }));
+            };
+            img.onerror = () => {
+                 console.error(`Failed to load chunk image for ${chunkId} from URL: ${result.url}`);
+                 setLoadedChunks(prev => ({
+                    ...prev,
+                    [chunkId]: { ...prev[chunkId], imgObj: chunkErrorPlaceholderImg, isLoading: false, isError: true }
+                }));
+            };
+            img.src = result.url;
+        } catch (error) {
+            console.error(`Error generating chunk ${chunkId}:`, error);
+            setLoadedChunks(prev => ({
+                ...prev,
+                [chunkId]: { ...prev[chunkId], imgObj: chunkErrorPlaceholderImg, isLoading: false, isError: true }
+            }));
+        }
+    }, [loadedChunks, chunkErrorPlaceholderImg]); // Ensure chunkErrorPlaceholderImg is stable or included in deps
+
+    useEffect(() => {
+        // Update view offset to keep player centered
+        const newViewOffsetX = playerPosition.x - CANVAS_WIDTH / 2 + PLAYER_SIZE / 2;
+        const newViewOffsetY = playerPosition.y - CANVAS_HEIGHT / 2 + PLAYER_SIZE / 2;
+        setViewOffset({ x: newViewOffsetX, y: newViewOffsetY });
+
+        // Determine current chunk player is in
+        const playerChunkX = Math.floor(playerPosition.x / CHUNK_PIXEL_SIZE);
+        const playerChunkY = Math.floor(playerPosition.y / CHUNK_PIXEL_SIZE);
+
+        // Load/generate chunks around the player
+        for (let cxOffset = -LOAD_RADIUS; cxOffset <= LOAD_RADIUS; cxOffset++) {
+            for (let cyOffset = -LOAD_RADIUS; cyOffset <= LOAD_RADIUS; cyOffset++) {
+                const cx = playerChunkX + cxOffset;
+                const cy = playerChunkY + cyOffset;
+                generateAndLoadChunk(cx, cy);
+            }
+        }
+    }, [playerPosition, generateAndLoadChunk]);
+
+
     useEffect(() => {
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false; // For pixel art
         let animationFrameId;
 
         const gameLoop = () => {
-            let newX = playerPosition.x;
-            let newY = playerPosition.y;
-            if (keysPressed.current['w'] || keysPressed.current['arrowup']) newY -= PLAYER_SPEED;
-            if (keysPressed.current['s'] || keysPressed.current['arrowdown']) newY += PLAYER_SPEED;
-            if (keysPressed.current['a'] || keysPressed.current['arrowleft']) newX -= PLAYER_SPEED;
-            if (keysPressed.current['d'] || keysPressed.current['arrowright']) newX += PLAYER_SPEED;
-
-            newX = Math.max(0, Math.min(CANVAS_WIDTH - PLAYER_SIZE, newX));
-            newY = Math.max(0, Math.min(CANVAS_HEIGHT - PLAYER_SIZE, newY));
+            let newWorldX = playerPosition.x;
+            let newWorldY = playerPosition.y;
+            if (keysPressed.current['w'] || keysPressed.current['arrowup']) newWorldY -= PLAYER_SPEED;
+            if (keysPressed.current['s'] || keysPressed.current['arrowdown']) newWorldY += PLAYER_SPEED;
+            if (keysPressed.current['a'] || keysPressed.current['arrowleft']) newWorldX -= PLAYER_SPEED;
+            if (keysPressed.current['d'] || keysPressed.current['arrowright']) newWorldX += PLAYER_SPEED;
             
-            if (newX !== playerPosition.x || newY !== playerPosition.y) {
-                onPlayerMove({ x: newX, y: newY });
+            // No boundary checks for player position in an infinite world
+            if (newWorldX !== playerPosition.x || newWorldY !== playerPosition.y) {
+                onPlayerMove({ x: newWorldX, y: newWorldY });
             }
 
             ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
             
-            // Draw effects first (behind player)
-            effects.forEach(effect => {
-                if (effect.imgObj && !effect.isError) {
-                     ctx.drawImage(effect.imgObj, effect.x, effect.y, effect.width || EFFECT_SIZE, effect.height || EFFECT_SIZE);
-                } else if (effect.isError && effect.imgObj) { // Loaded error placeholder
-                     ctx.drawImage(effect.imgObj, effect.x, effect.y, EFFECT_SIZE, EFFECT_SIZE);
-                } else if (effect.isLoading) {
-                    ctx.fillStyle = 'rgba(100,100,100,0.5)';
-                    ctx.fillRect(effect.x, effect.y, EFFECT_SIZE, EFFECT_SIZE);
-                    ctx.fillStyle = 'white';
-                    ctx.fillText('Loading...', effect.x + 5, effect.y + EFFECT_SIZE/2);
+            // Draw Chunks
+            Object.values(loadedChunks).forEach(chunk => {
+                const canvasX = chunk.worldX - viewOffset.x;
+                const canvasY = chunk.worldY - viewOffset.y;
+
+                // Basic culling: only draw if chunk is somewhat visible
+                if (canvasX + CHUNK_PIXEL_SIZE > 0 && canvasX < CANVAS_WIDTH &&
+                    canvasY + CHUNK_PIXEL_SIZE > 0 && canvasY < CANVAS_HEIGHT) {
+                    if (chunk.imgObj) {
+                        ctx.drawImage(chunk.imgObj, canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                    } else if (chunk.isLoading) {
+                         if (chunkLoadingPlaceholderImg.complete && chunkLoadingPlaceholderImg.naturalHeight !== 0) {
+                            ctx.drawImage(chunkLoadingPlaceholderImg, canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                         } else { // Fallback drawing if placeholder not loaded yet
+                            ctx.fillStyle = 'rgba(50,50,50,0.8)';
+                            ctx.fillRect(canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                            ctx.fillStyle = 'white';
+                            ctx.fillText('Loading chunk...', canvasX + 10, canvasY + CHUNK_PIXEL_SIZE/2);
+                         }
+                    }
                 }
             });
             
-            // Draw player
-            if (playerImage) {
-                ctx.drawImage(playerImage, playerPosition.x, playerPosition.y, PLAYER_SIZE, PLAYER_SIZE);
-            }
+            // Draw effects (world coordinates)
+            effects.forEach(effect => {
+                const effectCanvasX = effect.x - viewOffset.x;
+                const effectCanvasY = effect.y - viewOffset.y;
+                const effectRenderSize = effect.width || EFFECT_SIZE;
 
+
+                if (effectCanvasX + effectRenderSize > 0 && effectCanvasX < CANVAS_WIDTH &&
+                    effectCanvasY + effectRenderSize > 0 && effectCanvasY < CANVAS_HEIGHT) {
+                    if (effect.imgObj && !effect.isError) {
+                         ctx.drawImage(effect.imgObj, effectCanvasX, effectCanvasY, effectRenderSize, effect.height || EFFECT_SIZE);
+                    } else if (effect.isError && effect.imgObj) { // Loaded error placeholder for effect
+                         ctx.drawImage(effect.imgObj, effectCanvasX, effectCanvasY, EFFECT_SIZE, EFFECT_SIZE);
+                    } else if (effect.isLoading) { // Effect image is loading
+                        ctx.fillStyle = 'rgba(100,100,100,0.5)';
+                        ctx.fillRect(effectCanvasX, effectCanvasY, EFFECT_SIZE, EFFECT_SIZE);
+                        ctx.fillStyle = 'white';
+                        ctx.fillText('FX...', effectCanvasX + 5, effectCanvasY + EFFECT_SIZE/2);
+                    }
+                }
+            });
+            
+            // Draw player (always centered on canvas, viewOffset handles world movement)
+            if (playerImage) {
+                const playerCanvasX = playerPosition.x - viewOffset.x;
+                const playerCanvasY = playerPosition.y - viewOffset.y;
+                ctx.drawImage(playerImage, playerCanvasX, playerCanvasY, PLAYER_SIZE, PLAYER_SIZE);
+            }
 
             animationFrameId = requestAnimationFrame(gameLoop);
         };
         gameLoop();
         return () => cancelAnimationFrame(animationFrameId);
-    }, [playerImage, playerPosition, onPlayerMove, effects]);
+    }, [playerImage, playerPosition, onPlayerMove, effects, loadedChunks, viewOffset, chunkLoadingPlaceholderImg]);
 
     return <canvas ref={canvasRef} id="gameCanvas" width={CANVAS_WIDTH} height={CANVAS_HEIGHT} />;
 }
