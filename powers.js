@@ -13,7 +13,7 @@ const ALL_SUPERPOWERS = [
                     interactionPrompt: 'Record Timeline Echo',
                 },
                 visualEffect: {
-                    prompt: 'Pixel art depiction of swirling clocks, fractal temporal distortions, and glowing hour glasses, dark cosmic background.',
+                    prompt: 'Pixel art depiction of swirling clocks, fractal temporal distortions, and glowing hour glasses, dark cosmic background, on a transparent background.',
                     trigger: 'on_interaction', // 'on_data_change' or 'on_interaction'
                 }
             }
@@ -22,12 +22,12 @@ const ALL_SUPERPOWERS = [
             {
                 name: "Temporal Stutter",
                 datapoint: { type: 'time_loops_v1', description: 'Short, localized time loops or replays.', interactionPrompt: 'Create Micro-Loop' },
-                visualEffect: { prompt: 'Pixel art of a scene rapidly flickering and repeating, ghosting images, intense blue and purple light.', trigger: 'on_interaction' }
+                visualEffect: { prompt: 'Pixel art of a scene rapidly flickering and repeating, ghosting images, intense blue and purple light, on a transparent background.', trigger: 'on_interaction' }
             },
             {
                 name: "Precognitive Flash",
                 datapoint: { type: 'future_visions_v1', description: 'Brief, vivid glimpses of possible futures.', interactionPrompt: 'Seek Future Glimpse' },
-                visualEffect: { prompt: 'Pixel art of a hazy, shimmering vision overlaying reality, bright white and gold particles.', trigger: 'on_interaction' }
+                visualEffect: { prompt: 'Pixel art of a hazy, shimmering vision overlaying reality, bright white and gold particles, on a transparent background.', trigger: 'on_interaction' }
             }
         ]
     },
@@ -45,7 +45,7 @@ const ALL_SUPERPOWERS = [
                     interactionPrompt: 'Shift Earthen Mass',
                 },
                 visualEffect: {
-                    prompt: 'Pixel art of jagged rocks and earth erupting from the ground, forming dynamic structures, dust clouds, brown and grey tones.',
+                    prompt: 'Pixel art of jagged rocks and earth erupting from the ground, forming dynamic structures, dust clouds, brown and grey tones, on a transparent background.',
                     trigger: 'on_interaction',
                 }
             }
@@ -54,12 +54,12 @@ const ALL_SUPERPOWERS = [
             {
                 name: "Crystal Growth",
                 datapoint: { type: 'crystal_formations_v1', description: 'Cultivate and grow resonant crystals.', interactionPrompt: 'Grow Crystal Cluster' },
-                visualEffect: { prompt: 'Pixel art of vibrant, glowing crystals sprouting from the earth, geometric patterns, pulsating light.', trigger: 'on_interaction' }
+                visualEffect: { prompt: 'Pixel art of vibrant, glowing crystals sprouting from the earth, geometric patterns, pulsating light, on a transparent background.', trigger: 'on_interaction' }
             },
             {
                 name: "Seismic Pulse",
                 datapoint: { type: 'seismic_events_v1', description: 'Unleash localized tremors.', interactionPrompt: 'Generate Seismic Pulse' },
-                visualEffect: { prompt: 'Pixel art of shockwaves rippling through the ground, cracks appearing, objects shaking violently.', trigger: 'on_interaction' }
+                visualEffect: { prompt: 'Pixel art of shockwaves rippling through the ground, cracks appearing, objects shaking violently, on a transparent background.', trigger: 'on_interaction' }
             }
         ]
     },
@@ -77,7 +77,7 @@ const ALL_SUPERPOWERS = [
                     interactionPrompt: 'Tap Data Stream',
                 },
                 visualEffect: {
-                    prompt: 'Pixel art of glowing blue and green digital lines, nodes, and packets forming a complex network, abstract data patterns.',
+                    prompt: 'Pixel art of glowing blue and green digital lines, nodes, and packets forming a complex network, abstract data patterns, on a transparent background.',
                     trigger: 'on_interaction',
                 }
             }
@@ -86,12 +86,12 @@ const ALL_SUPERPOWERS = [
             {
                 name: "Information Siphon",
                 datapoint: { type: 'knowledge_extraction_v1', description: 'Extract specific knowledge from data streams.', interactionPrompt: 'Siphon Knowledge' },
-                visualEffect: { prompt: 'Pixel art of specific data fragments being pulled into a central glowing orb, bright streams of light.', trigger: 'on_interaction' }
+                visualEffect: { prompt: 'Pixel art of specific data fragments being pulled into a central glowing orb, bright streams of light, on a transparent background.', trigger: 'on_interaction' }
             },
             {
                 name: "Digital Decoy",
                 datapoint: { type: 'decoy_programs_v1', description: 'Create illusory data constructs.', interactionPrompt: 'Launch Digital Decoy' },
-                visualEffect: { prompt: 'Pixel art of glitching, holographic figures made of data, shimmering and distorting.', trigger: 'on_interaction' }
+                visualEffect: { prompt: 'Pixel art of glitching, holographic figures made of data, shimmering and distorting, on a transparent background.', trigger: 'on_interaction' }
             }
         ]
     },
@@ -109,7 +109,7 @@ const ALL_SUPERPOWERS = [
                     interactionPrompt: 'Sense Emotional Resonance',
                 },
                 visualEffect: {
-                    prompt: 'Pixel art of soft, shifting colorful auras (pinks, light blues, yellows), gentle light particles, ethereal glow.',
+                    prompt: 'Pixel art of soft, shifting colorful auras (pinks, light blues, yellows), gentle light particles, ethereal glow, on a transparent background.',
                     trigger: 'on_interaction',
                 }
             }
@@ -118,16 +118,15 @@ const ALL_SUPERPOWERS = [
             {
                 name: "Emotional Projection",
                 datapoint: { type: 'emotion_broadcast_v1', description: 'Project a specific emotional state outwards.', interactionPrompt: 'Project Calmness' },
-                visualEffect: { prompt: 'Pixel art of waves of calming blue light emanating from a central point, soothing particles.', trigger: 'on_interaction' }
+                visualEffect: { prompt: 'Pixel art of waves of calming blue light emanating from a central point, soothing particles, on a transparent background.', trigger: 'on_interaction' }
             },
             {
                 name: "Empathic Link",
                 datapoint: { type: 'shared_feelings_v1', description: 'Temporarily link emotional states with another.', interactionPrompt: 'Form Empathic Link' },
-                visualEffect: { prompt: 'Pixel art of two figures connected by a glowing cord of light, intermingling auras.', trigger: 'on_interaction' }
+                visualEffect: { prompt: 'Pixel art of two figures connected by a glowing cord of light, intermingling auras, on a transparent background.', trigger: 'on_interaction' }
             }
         ]
     }
 ];
 
 window.ALL_SUPERPOWERS = ALL_SUPERPOWERS;
-
