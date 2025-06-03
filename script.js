@@ -7,16 +7,17 @@ const CANVAS_HEIGHT = 600;
 const PLAYER_SIZE = 32;
 const EFFECT_SIZE = 64; // Effects are a bit larger
 const EFFECT_DURATION_MS = 5000; // 5 seconds
-const PLAYER_SPEED = 5;
+const PLAYER_SPEED = 2; // Player speed reduced
 
 // New constants for chunk system
 const CHUNK_PIXEL_SIZE = 256; // Each chunk is 256x256 pixels
+const TILE_SIZE = 64; // Each tile is 64x64 pixels
 const LOAD_RADIUS = 1; // Load chunks in a (LOAD_RADIUS*2+1) x (LOAD_RADIUS*2+1) grid around the player
 
-// URLs for placeholder images (assuming they are in the root directory)
-const CHUNK_LOADING_PLACEHOLDER_URL = 'chunk_loading_placeholder.png';
-const CHUNK_ERROR_PLACEHOLDER_URL = 'chunk_error_placeholder.png';
-const EFFECT_ERROR_PLACEHOLDER_URL = 'error_placeholder.png';
+// URLs for placeholder images
+const CHUNK_LOADING_PLACEHOLDER_URL = 'asset_name.png'; // Tileable loading mist (64x64)
+const CHUNK_ERROR_PLACEHOLDER_URL = '/error_placeholder.png'; // Error symbol (can be scaled)
+const EFFECT_ERROR_PLACEHOLDER_URL = '/error_placeholder.png';
 
 function App() {
     const [currentUser, setCurrentUser] = useState(null);
@@ -24,7 +25,7 @@ function App() {
     // Player position is now world coordinates
     const [playerPosition, setPlayerPosition] = useState(() => {
         const savedPos = localStorage.getItem('playerPosition');
-        return savedPos ? JSON.parse(savedPos) : { x: 0, y: 0 }; // Default to world origin
+        return savedPos ? JSON.parse(savedPos) : { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 }; // Default to center of initial view for better feel
     });
     const [playerImage, setPlayerImage] = useState(null);
     // Canvas effects positions are world coordinates
@@ -59,7 +60,7 @@ function App() {
                 id: randomPowerTemplate.id,
                 name: randomPowerTemplate.name,
                 description: randomPowerTemplate.description,
-                currentElements: randomPowerTemplate.baseElements.map(el => ({ ...el, instanceId: Date.now() + Math.random().toString(36).substr(2, 9) })),
+                currentElements: randomPowerTemplate.baseElements.map(el => ({ ...el, instanceId: Date.now() + Math.random().toString(36) })),
                 potentialEvolutions: randomPowerTemplate.potentialEvolutions,
                 interactionCount: 0,
             };
@@ -259,13 +260,13 @@ function App() {
 function GameCanvas({ playerImage, playerPosition, onPlayerMove, effects }) {
     const canvasRef = useRef(null);
     const keysPressed = useRef({});
-    const [loadedChunks, setLoadedChunks] = useState({}); // { "cx_cy": { imgObj, worldX, worldY, isLoading, isError, id } }
+    const [loadedChunks, setLoadedChunks] = useState({}); // { "cx_cy": { imgObj, worldX, worldY, isLoading, isError, id, isTile } }
     const [viewOffset, setViewOffset] = useState({ x: 0, y: 0 });
 
     // Preload placeholder images
     const chunkLoadingPlaceholderImg = useMemo(() => {
         const img = new Image();
-        img.src = CHUNK_LOADING_PLACEHOLDER_URL;
+        img.src = CHUNK_LOADING_PLACEHOLDER_URL; // This is a 64x64 tileable asset
         return img;
     }, []);
     const chunkErrorPlaceholderImg = useMemo(() => {
@@ -292,42 +293,45 @@ function GameCanvas({ playerImage, playerPosition, onPlayerMove, effects }) {
             return; // Already loaded or loading
         }
 
+        // Set initial loading state with tileable loading placeholder
         setLoadedChunks(prev => ({
             ...prev,
             [chunkId]: {
                 id: chunkId,
                 worldX: cx * CHUNK_PIXEL_SIZE,
                 worldY: cy * CHUNK_PIXEL_SIZE,
-                imgObj: null,
+                imgObj: chunkLoadingPlaceholderImg.complete && chunkLoadingPlaceholderImg.naturalHeight !== 0 ? chunkLoadingPlaceholderImg : null,
                 isLoading: true,
-                isError: false
+                isError: false,
+                isTile: true // The loading placeholder is a tile
             }
         }));
 
         try {
-            // Generate a unique-ish prompt based on coordinates for varied terrain
-            // Using a simple seed based on coordinates for some variation
             const seed = Math.abs(cx * 31 + cy * 17); 
             let terrainFeature = "grassy plains";
-            if (seed % 10 < 2) terrainFeature = "light forest";
-            else if (seed % 10 < 4) terrainFeature = "rocky patches";
-            else if (seed % 10 < 5) terrainFeature = "a small pond";
+            if (seed % 10 < 2) terrainFeature = "light forest with occasional clearings";
+            else if (seed % 10 < 4) terrainFeature = "patchy desert with hardy shrubs";
+            else if (seed % 10 < 5) terrainFeature = "a network of small glowing streams";
+            else if (seed % 10 < 6) terrainFeature = "rolling hills with sparse trees";
+            else if (seed % 10 < 7) terrainFeature = "fields of strange, glowing flora";
+            else terrainFeature = "cracked earth with sparse vegetation";
             
-            const prompt = `Pixel art terrain tile for chunk coordinates (${cx}, ${cy}). Style: Vibrant 16-bit fantasy RPG world. Features: mostly ${terrainFeature}. Seamlessly tileable. Aspect: 1:1.`;
+            const prompt = `Pixel art ${TILE_SIZE}x${TILE_SIZE} seamless tile texture for chunk coordinates (${cx}, ${cy}). Style: Vibrant 16-bit fantasy RPG world. Features: ${terrainFeature}.`;
             
-            const result = await websim.imageGen({ prompt, aspect_ratio: "1:1", width: CHUNK_PIXEL_SIZE, height: CHUNK_PIXEL_SIZE });
+            const result = await websim.imageGen({ prompt, width: TILE_SIZE, height: TILE_SIZE });
             const img = new Image();
             img.onload = () => {
                 setLoadedChunks(prev => ({
                     ...prev,
-                    [chunkId]: { ...prev[chunkId], imgObj: img, isLoading: false }
+                    [chunkId]: { ...prev[chunkId], imgObj: img, isLoading: false, isTile: true } // Generated terrain is a tile
                 }));
             };
             img.onerror = () => {
                  console.error(`Failed to load chunk image for ${chunkId} from URL: ${result.url}`);
                  setLoadedChunks(prev => ({
                     ...prev,
-                    [chunkId]: { ...prev[chunkId], imgObj: chunkErrorPlaceholderImg, isLoading: false, isError: true }
+                    [chunkId]: { ...prev[chunkId], imgObj: chunkErrorPlaceholderImg, isLoading: false, isError: true, isTile: false } // Error image is not a tile
                 }));
             };
             img.src = result.url;
@@ -335,10 +339,10 @@ function GameCanvas({ playerImage, playerPosition, onPlayerMove, effects }) {
             console.error(`Error generating chunk ${chunkId}:`, error);
             setLoadedChunks(prev => ({
                 ...prev,
-                [chunkId]: { ...prev[chunkId], imgObj: chunkErrorPlaceholderImg, isLoading: false, isError: true }
+                [chunkId]: { ...prev[chunkId], imgObj: chunkErrorPlaceholderImg, isLoading: false, isError: true, isTile: false } // Error image is not a tile
             }));
         }
-    }, [loadedChunks, chunkErrorPlaceholderImg]); // Ensure chunkErrorPlaceholderImg is stable or included in deps
+    }, [loadedChunks, chunkLoadingPlaceholderImg, chunkErrorPlaceholderImg]); // Dependencies
 
     useEffect(() => {
         // Update view offset to keep player centered
@@ -387,20 +391,49 @@ function GameCanvas({ playerImage, playerPosition, onPlayerMove, effects }) {
                 const canvasX = chunk.worldX - viewOffset.x;
                 const canvasY = chunk.worldY - viewOffset.y;
 
-                // Basic culling: only draw if chunk is somewhat visible
+                // Basic culling
                 if (canvasX + CHUNK_PIXEL_SIZE > 0 && canvasX < CANVAS_WIDTH &&
                     canvasY + CHUNK_PIXEL_SIZE > 0 && canvasY < CANVAS_HEIGHT) {
-                    if (chunk.imgObj) {
-                        ctx.drawImage(chunk.imgObj, canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
-                    } else if (chunk.isLoading) {
-                         if (chunkLoadingPlaceholderImg.complete && chunkLoadingPlaceholderImg.naturalHeight !== 0) {
-                            ctx.drawImage(chunkLoadingPlaceholderImg, canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
-                         } else { // Fallback drawing if placeholder not loaded yet
-                            ctx.fillStyle = 'rgba(50,50,50,0.8)';
+                    
+                    if (chunk.imgObj && chunk.imgObj.complete && chunk.imgObj.naturalHeight !== 0) {
+                        if (chunk.isTile) {
+                            // Applies to both generated terrain tiles and the loading mist tile
+                            const pattern = ctx.createPattern(chunk.imgObj, 'repeat');
+                            ctx.fillStyle = pattern;
                             ctx.fillRect(canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
-                            ctx.fillStyle = 'white';
-                            ctx.fillText('Loading chunk...', canvasX + 10, canvasY + CHUNK_PIXEL_SIZE/2);
-                         }
+                        } else { 
+                            // Applies to non-tile images like the error placeholder
+                            // Draw it scaled to fill the chunk
+                            ctx.drawImage(chunk.imgObj, canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                        }
+                    } else if (chunk.isLoading) { 
+                        // Fallback if chunk.imgObj (e.g. chunkLoadingPlaceholderImg) isn't ready or if terrain is fetching
+                        ctx.fillStyle = 'rgba(50,50,50,0.8)';
+                        ctx.fillRect(canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                        ctx.fillStyle = 'white';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Loading...', canvasX + CHUNK_PIXEL_SIZE / 2, canvasY + CHUNK_PIXEL_SIZE / 2);
+                        ctx.textAlign = 'left'; // Reset alignment
+                    } else {
+                        // Fallback for other unexpected states (e.g. not loading, no error, but no image)
+                        ctx.fillStyle = 'rgba(20,20,20,0.9)'; // Darker fill for error/missing
+                        ctx.fillRect(canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                        if (chunkErrorPlaceholderImg.complete && chunkErrorPlaceholderImg.naturalHeight !== 0) {
+                            // Attempt to draw a generic error symbol if available and chunk.imgObj was null
+                             const symbolSize = Math.min(CHUNK_PIXEL_SIZE / 2, 128); // Draw symbol smaller
+                             ctx.drawImage(
+                                 chunkErrorPlaceholderImg, 
+                                 canvasX + (CHUNK_PIXEL_SIZE - symbolSize) / 2, 
+                                 canvasY + (CHUNK_PIXEL_SIZE - symbolSize) / 2, 
+                                 symbolSize, 
+                                 symbolSize
+                            );
+                        } else {
+                            ctx.fillStyle = 'grey';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('Error', canvasX + CHUNK_PIXEL_SIZE / 2, canvasY + CHUNK_PIXEL_SIZE / 2);
+                            ctx.textAlign = 'left'; // Reset alignment
+                        }
                     }
                 }
             });
@@ -438,7 +471,7 @@ function GameCanvas({ playerImage, playerPosition, onPlayerMove, effects }) {
         };
         gameLoop();
         return () => cancelAnimationFrame(animationFrameId);
-    }, [playerImage, playerPosition, onPlayerMove, effects, loadedChunks, viewOffset, chunkLoadingPlaceholderImg]);
+    }, [playerImage, playerPosition, onPlayerMove, effects, loadedChunks, viewOffset, chunkLoadingPlaceholderImg, chunkErrorPlaceholderImg]); // Added placeholders to deps
 
     return <canvas ref={canvasRef} id="gameCanvas" width={CANVAS_WIDTH} height={CANVAS_HEIGHT} />;
 }
