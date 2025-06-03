@@ -19,6 +19,9 @@ const CHUNK_LOADING_PLACEHOLDER_URL = 'asset_name.png'; // Tileable loading mist
 const CHUNK_ERROR_PLACEHOLDER_URL = '/error_placeholder.png'; // Error symbol (can be scaled)
 const EFFECT_ERROR_PLACEHOLDER_URL = '/error_placeholder.png';
 
+// Thresholds for triggering LLM-driven power evolution
+const EVOLUTION_THRESHOLDS = [3, 7, 12, 20];
+
 function App() {
     const [currentUser, setCurrentUser] = useState(null);
     const [playerPower, setPlayerPower] = useState(null);
@@ -61,7 +64,7 @@ function App() {
                 name: randomPowerTemplate.name,
                 description: randomPowerTemplate.description,
                 currentElements: randomPowerTemplate.baseElements.map(el => ({ ...el, instanceId: Date.now() + Math.random().toString(36) })),
-                potentialEvolutions: randomPowerTemplate.potentialEvolutions,
+                potentialEvolutions: randomPowerTemplate.potentialEvolutions, // Kept for template info, not direct use
                 interactionCount: 0,
             };
             setPlayerPower(initialPower);
@@ -85,14 +88,14 @@ function App() {
             ).map(ef => {
                  if(ef.id === effectId && ef.isError && !ef.imgObj) {
                     const errorImg = new Image();
-                    errorImg.onload = () => setCanvasEffects(prevs => prevs.map(e => e.id === effectId ? {...e, imgObj: errorImg, width: EFFECT_SIZE, height: EFFECT_SIZE} : e)); // Use default EFFECT_SIZE for placeholder
+                    errorImg.onload = () => setCanvasEffects(prevs => prevs.map(e => e.id === effectId ? {...e, imgObj: errorImg, width: EFFECT_SIZE, height: EFFECT_SIZE} : e));
                     errorImg.src = EFFECT_ERROR_PLACEHOLDER_URL;
                     return {...ef, imgObj: null, isLoading: true}; 
                  }
                  return ef;
             }));
         };
-        img.src = isError ? EFFECT_ERROR_PLACEHOLDER_URL : url; // Use error placeholder if isError is true initially
+        img.src = isError ? EFFECT_ERROR_PLACEHOLDER_URL : url;
 
         setCanvasEffects(prev => [...prev, {
             id: effectId,
@@ -113,8 +116,8 @@ function App() {
         const timer = setInterval(() => {
             setCanvasEffects(prevEffects =>
                 prevEffects.filter(ef => {
-                    if (ef.isLoading && !ef.isError) return true; // Keep loading non-error effects
-                    if (ef.isError && ef.isLoading) return true; // Keep loading error placeholder
+                    if (ef.isLoading && !ef.isError) return true;
+                    if (ef.isError && ef.isLoading) return true;
                     return Date.now() - ef.createdAt < EFFECT_DURATION_MS;
                 })
             );
@@ -122,8 +125,102 @@ function App() {
         return () => clearInterval(timer);
     }, []);
 
+    const triggerLlmEvolutionCheck = useCallback(async (powerState) => {
+        if (evolutionInProgress) return;
+        setEvolutionInProgress(true);
+        console.log("Attempting LLM-driven power evolution...");
+
+        try {
+            let interactionHistorySummary = "Recent interactions for current power elements:\n";
+            if (powerState.currentElements.length > 0) {
+                for (const el of powerState.currentElements) {
+                    const interactions = room.collection(el.datapoint.type).getList();
+                    interactionHistorySummary += `- Element "${el.name}" (Type: ${el.datapoint.type}): Used ${interactions.length} times.`;
+                    if (interactions.length > 0 && interactions[0].message) {
+                         interactionHistorySummary += ` Last recorded action: "${interactions[0].message.substring(0,100)}"`;
+                    }
+                    interactionHistorySummary += "\n";
+                }
+            } else {
+                 interactionHistorySummary = "No specific element interactions recorded yet for current power set.";
+            }
+
+
+            const systemMessage = `You are a game master designing creative power evolutions for a 2D pixel art exploration game.
+Based on the player's current power and their interaction history, suggest a new, unique power element (which will become an activatable button).
+The new element should be thematically consistent with the existing power but offer a new type of interaction or effect.
+Avoid suggesting elements that are too similar to existing ones. The player already has these elements: ${powerState.currentElements.map(e => e.name).join(', ')}.
+Respond ONLY with a JSON object matching this schema:
+{
+  "newElementName": "string", // A cool, descriptive name for the new ability
+  "newDatapointType": "string", // A new, unique websim collection type, ending with '_v1', e.g., "reality_flux_v1", "aetheric_resonance_v1"
+  "newDatapointDescription": "string", // What this datapoint represents or does
+  "newInteractionPrompt": "string", // Text for the button, e.g., "Induce Flux", "Resonate Aether"
+  "newVisualEffectPrompt": "string", // Detailed prompt for DALL-E: "Pixel art of [description], 1:1 aspect ratio, on a transparent background"
+  "newVisualEffectTrigger": "on_interaction" // For now, always use "on_interaction"
+}`;
+
+            const userMessageContent = `Player's Current Power:
+Name: ${powerState.name}
+Description: ${powerState.description}
+Current Elements (name: button_prompt (datapoint_type)):
+${powerState.currentElements.map(el => `- ${el.name}: "${el.datapoint.interactionPrompt}" (${el.datapoint.type})`).join('\n')}
+
+Interaction History Summary:
+${interactionHistorySummary}
+
+Suggest a new power element. Ensure newDatapointType is unique, ends with '_v1', and newVisualEffectPrompt specifies pixel art and transparent background.`;
+
+            const completion = await websim.chat.completions.create({
+                messages: [
+                    { role: "system", content: systemMessage },
+                    { role: "user", content: userMessageContent }
+                ],
+                json: true,
+            });
+
+            const evolutionSuggestion = JSON.parse(completion.content);
+
+            // Validate the suggestion (basic)
+            if (!evolutionSuggestion.newElementName || !evolutionSuggestion.newDatapointType || !evolutionSuggestion.newDatapointType.endsWith('_v1') || !evolutionSuggestion.newInteractionPrompt || !evolutionSuggestion.newVisualEffectPrompt) {
+                throw new Error("LLM suggestion is missing required fields or has invalid format.");
+            }
+            
+            const newElement = {
+                id: evolutionSuggestion.newDatapointType.replace(/_v\d+$/, '') + '_element', // Base ID from datapoint type
+                instanceId: Date.now() + Math.random().toString(36),
+                name: evolutionSuggestion.newElementName,
+                datapoint: {
+                    type: evolutionSuggestion.newDatapointType,
+                    description: evolutionSuggestion.newDatapointDescription,
+                    interactionPrompt: evolutionSuggestion.newInteractionPrompt,
+                },
+                visualEffect: {
+                    prompt: evolutionSuggestion.newVisualEffectPrompt,
+                    trigger: "on_interaction", // Hardcode for now as per instructions
+                },
+            };
+
+            setPlayerPower(prevPower => {
+                const updatedPower = {
+                    ...prevPower,
+                    currentElements: [...prevPower.currentElements, newElement],
+                };
+                localStorage.setItem('playerPower', JSON.stringify(updatedPower));
+                alert(`Your power adapts! You gained a new ability: ${newElement.name} - "${newElement.datapoint.interactionPrompt}"`);
+                return updatedPower;
+            });
+
+        } catch (error) {
+            console.error("Error during LLM-driven evolution:", error);
+            alert("An attempt to adapt your power encountered an issue. The void whispers... but says nothing useful yet. Try interacting more.");
+        } finally {
+            setEvolutionInProgress(false);
+        }
+    }, [evolutionInProgress]); // Removed playerPower from dependencies to avoid stale closures if not careful, pass powerState directly
+
     const handleInteraction = useCallback(async (element) => {
-        if (!currentUser || !playerPower) return;
+        if (!currentUser || !playerPower || evolutionInProgress) return;
 
         setLoadingStates(prev => ({ ...prev, [element.instanceId]: true }));
 
@@ -140,11 +237,19 @@ function App() {
                 const imageResult = await websim.imageGen({ prompt: element.visualEffect.prompt, aspect_ratio: "1:1", transparent: true });
                 addEffectToCanvas(imageResult.url, playerPosition, element.instanceId); // playerPosition is world coords
             }
-
+            
+            // Update interaction count and potentially trigger evolution
             setPlayerPower(prevPower => {
-                const newPower = { ...prevPower, interactionCount: (prevPower.interactionCount || 0) + 1 };
-                localStorage.setItem('playerPower', JSON.stringify(newPower));
-                return newPower;
+                const newInteractionCount = (prevPower.interactionCount || 0) + 1;
+                const updatedPower = { ...prevPower, interactionCount: newInteractionCount };
+                localStorage.setItem('playerPower', JSON.stringify(updatedPower));
+
+                if (EVOLUTION_THRESHOLDS.includes(newInteractionCount)) {
+                    // Call with a slight delay to ensure state update completes if needed,
+                    // and to not block the current interaction flow too much.
+                    setTimeout(() => triggerLlmEvolutionCheck(updatedPower), 0);
+                }
+                return updatedPower;
             });
 
         } catch (error) {
@@ -153,7 +258,7 @@ function App() {
         } finally {
             setLoadingStates(prev => ({ ...prev, [element.instanceId]: false }));
         }
-    }, [currentUser, playerPower, playerPosition, addEffectToCanvas]);
+    }, [currentUser, playerPower, playerPosition, addEffectToCanvas, evolutionInProgress, triggerLlmEvolutionCheck]);
 
     // Subscriptions for 'on_data_change' effects
     playerPower?.currentElements.forEach(element => {
@@ -170,13 +275,12 @@ function App() {
 
             // eslint-disable-next-line react-hooks/rules-of-hooks
             useEffect(() => {
-                if (dataList.length > lastProcessedCount.current && !loadingStates[element.instanceId]) {
+                if (dataList.length > lastProcessedCount.current && !loadingStates[element.instanceId] && !evolutionInProgress) {
                     lastProcessedCount.current = dataList.length;
                     const generateEffect = async () => {
                         setLoadingStates(prev => ({ ...prev, [element.instanceId]: true }));
                         try {
                             const imageResult = await websim.imageGen({ prompt: element.visualEffect.prompt, aspect_ratio: "1:1", transparent: true });
-                            // playerPosition is world coords
                             addEffectToCanvas(imageResult.url, playerPosition, element.instanceId); 
                         } catch (error) {
                             console.error("Error generating visual effect on data change:", error);
@@ -188,44 +292,10 @@ function App() {
                     generateEffect();
                 }
             // eslint-disable-next-line react-hooks/exhaustive-deps
-            }, [dataList, element.instanceId, element.visualEffect.prompt, addEffectToCanvas, playerPosition]);
+            }, [dataList, element.instanceId, element.visualEffect.prompt, addEffectToCanvas, playerPosition, evolutionInProgress]);
         }
     });
     
-    const attemptEvolution = useCallback(async () => {
-        if (!playerPower || !playerPower.potentialEvolutions || playerPower.potentialEvolutions.length === 0) {
-            alert("No more evolutions available.");
-            return;
-        }
-        setEvolutionInProgress(true);
-        try {
-            const nextEvolution = playerPower.potentialEvolutions[0];
-            const newElement = {
-                id: nextEvolution.datapoint.type.replace(/_v\d+$/, '') + '_' + Date.now().toString(36),
-                instanceId: Date.now() + Math.random().toString(36).substr(2, 9),
-                name: nextEvolution.name,
-                datapoint: nextEvolution.datapoint,
-                visualEffect: nextEvolution.visualEffect,
-            };
-            setPlayerPower(prevPower => {
-                const updatedPower = {
-                    ...prevPower,
-                    currentElements: [...prevPower.currentElements, newElement],
-                    potentialEvolutions: prevPower.potentialEvolutions.slice(1),
-                    interactionCount: 0 
-                };
-                localStorage.setItem('playerPower', JSON.stringify(updatedPower));
-                alert(`Power Evolved! You gained: ${newElement.name}`);
-                return updatedPower;
-            });
-        } catch (error) {
-            console.error("Error attempting evolution:", error);
-            alert("An error occurred during evolution.");
-        } finally {
-            setEvolutionInProgress(false);
-        }
-    }, [playerPower]);
-
     const handlePlayerMove = useCallback((newWorldPosition) => {
         setPlayerPosition(newWorldPosition);
     }, []);
@@ -249,7 +319,6 @@ function App() {
                 playerPower={playerPower}
                 currentPowerTemplate={currentPowerTemplate}
                 handleInteraction={handleInteraction}
-                attemptEvolution={attemptEvolution}
                 loadingStates={loadingStates}
                 evolutionInProgress={evolutionInProgress}
             />
@@ -400,7 +469,11 @@ function GameCanvas({ playerImage, playerPosition, onPlayerMove, effects }) {
                             // Applies to both generated terrain tiles and the loading mist tile
                             const pattern = ctx.createPattern(chunk.imgObj, 'repeat');
                             ctx.fillStyle = pattern;
-                            ctx.fillRect(canvasX, canvasY, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                            // Translate pattern by viewOffset to keep it aligned with world space
+                            ctx.save();
+                            ctx.translate(canvasX, canvasY);
+                            ctx.fillRect(0,0, CHUNK_PIXEL_SIZE, CHUNK_PIXEL_SIZE);
+                            ctx.restore();
                         } else { 
                             // Applies to non-tile images like the error placeholder
                             // Draw it scaled to fill the chunk
@@ -476,42 +549,28 @@ function GameCanvas({ playerImage, playerPosition, onPlayerMove, effects }) {
     return <canvas ref={canvasRef} id="gameCanvas" width={CANVAS_WIDTH} height={CANVAS_HEIGHT} />;
 }
 
-function HudOverlay({ currentUser, playerPower, currentPowerTemplate, handleInteraction, attemptEvolution, loadingStates, evolutionInProgress}) {
+function HudOverlay({ currentUser, playerPower, handleInteraction, loadingStates, evolutionInProgress }) {
     return (
         <div className="hud-overlay">
-            <div className="hud-header">Player Console</div>
             <div className="user-info">
-                Welcome, {currentUser.username}!
+                {currentUser.username}
                 <img src={`https://images.websim.com/avatar/${currentUser.username}`} alt="avatar" />
+                 {evolutionInProgress && <span style={{ marginLeft: '10px', color: '#00ff99' }}> (Adapting power...)</span>}
             </div>
-
-            <div className="power-status">
-                <h2>Power: {playerPower.name}</h2>
-                <p>{playerPower.description}</p>
-                <p>Interaction Count: {playerPower.interactionCount}</p>
-                {currentPowerTemplate && currentPowerTemplate.potentialEvolutions.length > 0 && playerPower.potentialEvolutions && playerPower.potentialEvolutions.length > 0 && (
-                     <button onClick={attemptEvolution} disabled={evolutionInProgress || playerPower.potentialEvolutions.length === 0}>
-                        {evolutionInProgress ? "Evolving..." : `Attempt Evolution (${playerPower.potentialEvolutions.length} available)`}
-                    </button>
-                 )}
-                 {(!playerPower.potentialEvolutions || playerPower.potentialEvolutions.length === 0) && <p>Max evolution reached for now!</p>}
-            </div>
-
-            <h3 style={{marginTop: '15px', color:'#ffcc00', fontSize: '1.1em'}}>Active Elements:</h3>
+            
+            <h3 style={{marginTop: '10px', color:'#ffcc00', fontSize: '1.0em', textAlign: 'center', marginBottom: '5px'}}>
+                Abilities [{playerPower.name}]
+            </h3>
             <div className="active-elements-grid">
                 {playerPower.currentElements.map((element) => (
                     <div key={element.instanceId} className="element-control">
-                        <h4>{element.name}</h4>
-                        <p><strong>Datapoint:</strong> {element.datapoint.description} (<code>{element.datapoint.type}</code>)</p>
-                        <p><strong>Effect:</strong> {element.visualEffect.trigger === 'on_interaction' ? 'On Use' : 'On Data Change'}</p>
-                        {element.datapoint.interactionPrompt && (
-                            <button 
-                                onClick={() => handleInteraction(element)}
-                                disabled={loadingStates[element.instanceId]}
-                            >
-                                {loadingStates[element.instanceId] ? 'Processing...' : element.datapoint.interactionPrompt}
-                            </button>
-                        )}
+                        <button 
+                            onClick={() => handleInteraction(element)}
+                            disabled={loadingStates[element.instanceId] || evolutionInProgress}
+                            title={element.name} // Tooltip for element name
+                        >
+                            {loadingStates[element.instanceId] ? 'Processing...' : element.datapoint.interactionPrompt}
+                        </button>
                          <DataLog collectionType={element.datapoint.type} />
                     </div>
                 ))}
@@ -527,10 +586,10 @@ function DataLog({ collectionType }) {
     );
     const [showLog, setShowLog] = useState(false);
 
-    if (!items || items.length === 0) {
-        return <p style={{fontSize: '0.75em', color: '#888', marginTop: '5px'}}>No '{collectionType}' data yet.</p>;
+    if (!items) { // Handle case where items might be undefined initially
+        return <p style={{fontSize: '0.75em', color: '#888', marginTop: '5px'}}>Loading log...</p>;
     }
-
+    
     return (
         <div style={{marginTop: '5px'}}>
             <button onClick={() => setShowLog(!showLog)} style={{fontSize: '0.7em', padding: '2px 4px', backgroundColor: '#555'}}>
@@ -538,7 +597,8 @@ function DataLog({ collectionType }) {
             </button>
             {showLog && (
                 <div className="data-log">
-                    {items.slice().reverse().slice(0, 3).map(item => ( // Show latest 3
+                    {items.length === 0 && <div className="data-log-entry">No '{collectionType}' data yet.</div>}
+                    {items.slice().reverse().slice(0, 3).map(item => ( 
                         <div key={item.id} className="data-log-entry">
                             <strong>{item.username}</strong> ({new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}): {item.message || 'Generic update'}
                         </div>

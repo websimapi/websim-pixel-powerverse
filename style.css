@@ -49,16 +49,6 @@ canvas#gameCanvas {
     overflow-y: auto;
 }
 
-.hud-header {
-    text-align: center;
-    font-size: 1.5em;
-    color: #00ff99;
-    text-shadow: 0 0 3px #00ff99;
-    padding-bottom: 5px;
-    margin-bottom: 10px;
-    border-bottom: 1px solid #444;
-}
-
 .user-info {
     text-align: center;
     margin-bottom: 10px;
@@ -73,22 +63,11 @@ canvas#gameCanvas {
     margin-left: 5px;
 }
 
-.power-status h2 {
-    color: #00ccff;
-    font-size: 1.2em;
-    margin: 0 0 5px 0;
-}
-.power-status p {
-    font-size: 0.85em;
-    margin: 3px 0;
-    color: #bbb;
-}
-
 .active-elements-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 10px;
-    margin-top: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); /* Slightly smaller minmax */
+    gap: 8px; /* Slightly smaller gap */
+    margin-top: 5px;
 }
 
 .element-control {
@@ -96,30 +75,24 @@ canvas#gameCanvas {
     padding: 8px;
     border-radius: 4px;
     border: 1px solid #666;
+    display: flex; /* For aligning button and log */
+    flex-direction: column; /* Stack button on top of log */
+    align-items: center; /* Center button and log horizontally */
 }
-
-.element-control h4 {
-    margin: 0 0 5px 0;
-    color: #99ff99;
-    font-size: 1em;
-}
-.element-control p {
-    font-size: 0.8em;
-    margin: 2px 0;
-}
-
 
 button {
     background-color: #007bff;
     color: white;
     border: none;
-    padding: 6px 10px; /* Slightly smaller */
+    padding: 8px 12px; /* Adjusted padding for better look with just prompt */
     border-radius: 4px;
     cursor: pointer;
     font-family: 'Courier New', Courier, monospace;
-    font-size: 0.85em; /* Slightly smaller */
+    font-size: 0.9em; /* Adjusted font size */
     margin-top: 5px;
     transition: background-color 0.2s;
+    width: 100%; /* Make buttons take full width of their grid cell */
+    box-sizing: border-box; /* Include padding and border in the element's total width and height */
 }
 
 button:hover {
@@ -140,7 +113,8 @@ button:disabled {
 
 .data-log {
     margin-top: 8px;
-    max-height: 100px; /* Smaller log display */
+    width: 100%; /* Make log take full width */
+    max-height: 80px; /* Smaller log display */
     overflow-y: auto;
     background-color: #2c2c2c;
     padding: 5px;
@@ -150,6 +124,7 @@ button:disabled {
 .data-log-entry {
     padding: 1px 0;
     border-bottom: 1px dashed #444;
+    word-break: break-word; /* Prevent long messages from breaking layout */
 }
 .data-log-entry:last-child {
     border-bottom: none;
